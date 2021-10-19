@@ -125,13 +125,19 @@ func (w *GzipResponseWriter) Write(b []byte) (int, error) {
 		}
 		// If the Content-Length is larger than minSize or the current buffer is larger than minSize, then continue.
 		if cl >= w.minSize || len(w.buf) >= w.minSize {
-			// If a Content-Type wasn't specified, infer it from the current buffer.
+			// Detect the Content-Type from the current buffer.
+			// If it is already gzipped, we do not need to use gzip.
+			dct := http.DetectContentType(w.buf)
+
+			// If a Content-Type wasn't specified, use the inferred one.
 			if ct == "" {
-				ct = http.DetectContentType(w.buf)
-				w.Header().Set(contentType, ct)
+				ct = dct
+				w.Header().Set(contentType, dct)
 			}
+			isGzip := dct == "application/x-gzip"
+
 			// If the Content-Type is acceptable to GZIP, initialize the GZIP writer.
-			if handleContentType(w.contentTypes, ct) {
+			if !isGzip && handleContentType(w.contentTypes, ct) {
 				if err := w.startGzip(); err != nil {
 					return 0, err
 				}
@@ -529,4 +535,14 @@ func parseCoding(s string) (coding string, qvalue float64, err error) {
 	}
 
 	return
+}
+
+const (
+	gzipID1     = 0x1f
+	gzipID2     = 0x8b
+	gzipDeflate = 8
+)
+
+func detectGzipEncoding(buf []byte) bool {
+	return len(buf) >= 3 && buf[0] == gzipID1 && buf[1] == gzipID2 && buf[2] == gzipDeflate
 }
